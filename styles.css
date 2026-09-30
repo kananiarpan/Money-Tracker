@@ -228,11 +228,15 @@ svg { width: 18px; height: 18px; flex: none; }
 .bd-row:hover { background: rgba(255, 255, 255, 0.035); }
 .bd-label { display: flex; align-items: center; gap: 9px; color: var(--ink-2); font-size: 13px; min-width: 0; }
 .bd-label .dot { flex: none; }
+.bd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot-lg { width: 11px; height: 11px; }
-.bd-track { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* The right padding is a reserved lane for the value label: fill widths are
+ * % of the track's content box, so a 100% bar + gap + value can never spill
+ * past the card edge. */
+.bd-track { display: flex; align-items: center; gap: 10px; min-width: 0; padding-right: 80px; }
 .bd-fill { height: 12px; border-radius: 0 4px 4px 0; flex: none; min-width: 2px; }
-.bd-value { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bd-value { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
 
 /* ---------- transaction list ---------- */
 
@@ -382,6 +386,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cur
 .modal {
   position: relative;
   max-width: 440px;
+  max-height: 88vh;
+  overflow-y: auto;
   margin: 9vh auto 0;
   background: var(--surface);
   border: 1px solid var(--line-2);
@@ -579,8 +585,10 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cur
   .kpi-row { grid-template-columns: 1fr; }
   .field-row { grid-template-columns: 1fr; }
   .bd-row { grid-template-columns: 112px 1fr; gap: 10px; }
+  .bd-track { padding-right: 66px; }
+  .bd-value { font-size: 12px; }
   .month-label { min-width: 110px; }
-  .modal { margin: 0; position: fixed; left: 0; right: 0; bottom: 0; max-width: none; border-radius: 16px 16px 0 0; }
+  .modal { margin: 0; position: fixed; left: 0; right: 0; bottom: 0; max-width: none; max-height: 92vh; border-radius: 16px 16px 0 0; }
   .del-btn { opacity: 1; }
 }
 

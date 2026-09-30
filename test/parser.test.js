@@ -126,6 +126,8 @@ console.log('— guided: noteIsSkipped —');
 check('no note', parser.noteIsSkipped('no note'), true);
 check('nothing', parser.noteIsSkipped('nothing'), true);
 check('skip', parser.noteIsSkipped('skip'), true);
+check('ASR mishearing: no not', parser.noteIsSkipped('No not'), true);
+check('ASR mishearing: no no', parser.noteIsSkipped('no no'), true);
 check('real note kept', parser.noteIsSkipped('weekly groceries'), false);
 
 console.log('— guided: accountMatch via parse —');

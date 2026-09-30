@@ -562,6 +562,7 @@ window.MTUI = (function () {
     ov.querySelector('.ov-guide').hidden = true;
     ov.querySelector('.ov-chips').hidden = true;
     ov.querySelector('[data-step-back]').hidden = true;
+    ov.querySelector('[data-listen-done]').hidden = true;
     const st = ov.querySelector('.ov-status');
     st.hidden = false;
     st.textContent = 'Voice didn’t work';
@@ -646,7 +647,7 @@ window.MTUI = (function () {
       const w = Math.max((r.cents / max) * 100, 1.5);
       const pct = Math.round((r.cents / total) * 100);
       return `<div class="bd-row" title="${esc(fmt(r.cents))} · ${pct}% of ${scope} this month">
-        <div class="bd-label"><span class="dot" style="background:${r.color}"></span>${esc(r.label)}</div>
+        <div class="bd-label"><span class="dot" style="background:${r.color}"></span><span class="bd-name">${esc(r.label)}</span></div>
         <div class="bd-track"><div class="bd-fill" style="width:${w}%; background:${r.color}"></div>
           <span class="bd-value">${fmt(r.cents)}</span></div>
       </div>`;

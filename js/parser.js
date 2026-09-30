@@ -329,8 +329,10 @@
     return null;
   }
 
-  /* note skip words: "no note", "nothing", "skip"… */
-  var NOTE_SKIP = ['no', 'nope', 'no note', 'nothing', 'skip', "that's all", 'thats all', 'none', 'nah'];
+  /* note skip words — including common ASR mishearings of "no note"
+   * ("no not", "no no", "know note"…), which landed as literal notes before. */
+  var NOTE_SKIP = ['no', 'nope', 'no note', 'nothing', 'skip', "that's all", 'thats all', 'none', 'nah',
+    'no not', 'no no', 'nono', 'know note', 'no notes', 'nada', 'nothing else', 'no thanks', 'no thank you'];
   function noteIsSkipped(input) {
     var t = normalize(input);
     return NOTE_SKIP.indexOf(t) !== -1;
