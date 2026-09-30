@@ -64,11 +64,17 @@
           <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/>
         </svg>
       </div>
-      <p class="ov-status">Listening…</p>
+      <div class="ov-guide" hidden>
+        <div class="ov-dots" aria-hidden="true"></div>
+        <p class="ov-question"></p>
+      </div>
+      <p class="ov-status" hidden></p>
       <p class="ov-transcript">…</p>
-      <p class="ov-hint">Try: &ldquo;Spent 24 on groceries from CIBC Current&rdquo;</p>
+      <div class="ov-chips" hidden></div>
+      <p class="ov-hint"></p>
       <div class="ov-actions">
         <button class="btn" data-listen-cancel>Cancel</button>
+        <button class="btn" data-step-back hidden>Back</button>
         <button class="btn btn-primary" data-listen-done>Done</button>
       </div>
       <div class="ov-error-actions" hidden>

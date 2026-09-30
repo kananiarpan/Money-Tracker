@@ -22,15 +22,17 @@ Types: bank account, credit card, cash, investment. Each account card shows its 
 
 ## Adding by voice 🎙️
 
-The main way to add anything. Tap the mic button (or press **V**) and say something like:
+The main way to add anything. Tap the mic button (or press **V**) and the app walks you through the entry **one question at a time** — recognition only ever has to answer one narrow thing, which is far more accurate than parsing a whole sentence:
 
-- *"Spent 24 dollars on groceries from CIBC Current"*
-- *"Earned 1500 salary in CIBC Savings"*
-- *"Paid 60 for internet on my credit card"*
-- *"Bought coffee for five dollars yesterday"*
-- *"Got paid two thousand dollars"*
+1. **Expense or income?**
+2. **How much?** — digits or words, incl. money speech like *"twenty four fifty"* ($24.50) or *"fifty cents"*
+3. **Paid via which account?** — (or *"Received in…"* for income); the app speaks your account names when there are only a few
+4. **What was it for?** — category; say *"skip"* to file under Other
+5. **Any note?** — say *"no note"* to skip
 
-The app listens, parses the utterance — intent (spent/earned/…), amount (digits or number-words like "twenty five"), category keywords, account name, and date words — and opens a **confirmation card** pre-filled with what it understood. You review, fix anything, and save. Nothing is ever written without that confirmation, and the account field is always required.
+Each answer is confirmed aloud before the next question, every step offers **tappable chips** if you'd rather not speak, and *"back"* / *"cancel"* work as voice commands too. Impatient? Answer the first question with the whole entry — *"spent 25 on coffee from CIBC Current"* — and every step it covers is skipped. Either way, the **confirmation card** appears before anything is saved, and the account field is always required. Nothing is ever written without that confirmation.
+
+Spoken questions use your device's speech synthesis and can be turned off in **Settings → Preferences** (the questions still show on screen). The mic is only ever open *after* a question finishes, so the app never transcribes itself.
 
 **Typed quick-add** uses the exact same parser: type `uber 18 from cibc current` into the bar at the top of Expenses/Earnings and hit Enter.
 

@@ -259,7 +259,93 @@
     return draft;
   }
 
-  var api = { parse: parse, normalize: normalize, wordsToNumber: wordsToNumber, TYPE_SYNONYMS: TYPE_SYNONYMS };
+  /* --- Guided-voice helpers (one question at a time) --- */
+
+  /* "Expense or income?" -> 'expense' | 'income' | null */
+  function parseKind(input) {
+    var text = ' ' + normalize(input) + ' ';
+    if (!text.trim()) return null;
+    var hit = findKind(text);
+    return hit ? hit.kind : null;
+  }
+
+  /* "How much?" -> integer cents | null. Beyond the freeform amount logic
+   * this understands spoken-cents forms common in money talk, which a plain
+   * number accumulator gets wrong: "twenty four fifty" -> $24.50 (not $74),
+   * "two dollars fifty" -> $2.50, "fifty cents" -> $0.50. */
+  var TENS_WORD = { twenty: 1, thirty: 1, forty: 1, fourty: 1, fifty: 1, sixty: 1, seventy: 1, eighty: 1, ninety: 1 };
+  var ONES_WORD = { one: 1, two: 1, three: 1, four: 1, five: 1, six: 1, seven: 1, eight: 1, nine: 1 };
+
+  function wordsAll(tokens) {
+    var r = tokens.length ? wordsToNumber(tokens, 0) : null;
+    return (r && r.consumed === tokens.length) ? r.value : null;
+  }
+
+  function parseAmountCents(input) {
+    var norm = normalize(input);
+    if (!norm) return null;
+    /* digits, with k / grand / cents units */
+    var m = /(\d+(?:\.\d{1,2})?)\s*(k|grand|dollars?|bucks|cad|usd|cents?)?\b/.exec(norm);
+    if (m) {
+      var v = parseFloat(m[1]);
+      var unit = m[2] || '';
+      if (unit === 'k' || unit === 'grand') v *= 1000;
+      if (unit === 'cent' || unit === 'cents') v /= 100;
+      if (v > 0) return Math.round(v * 100);
+    }
+    var hadCents = /\bcents?\b/.test(norm);
+    var tokens = norm.split(' ').filter(function (w) {
+      return ['dollar', 'dollars', 'buck', 'bucks', 'cad', 'usd', 'cent', 'cents', 'and'].indexOf(w) === -1;
+    });
+    /* An ONES word followed by a TENS word is invalid in normal number
+     * grammar — in money speech it means dollars-then-cents. */
+    for (var j = 0; j + 1 < tokens.length; j++) {
+      if (ONES_WORD[tokens[j]] && TENS_WORD[tokens[j + 1]]) {
+        var d = wordsAll(tokens.slice(0, j + 1));
+        var c = wordsAll(tokens.slice(j + 1));
+        if (d !== null && c !== null && c <= 99) return d * 100 + c;
+      }
+    }
+    var all = wordsAll(tokens);
+    if (all !== null && all > 0) return hadCents && all < 100 ? all : all * 100;
+    return null;
+  }
+
+  /* "What was it for?" -> category id | null.
+   * Matches keyword lists first, then the category's own label words. */
+  function matchCategoryGuided(input, categories) {
+    var text = ' ' + normalize(input) + ' ';
+    if (!text.trim()) return null;
+    var byKw = matchCategory(text, categories);
+    if (byKw) return byKw.id;
+    for (var c = 0; c < categories.length; c++) {
+      var cat = categories[c];
+      if (hasPhrase(text, normalize(cat.id))) return cat.id;
+      var words = normalize(cat.label || cat.id).split(' ').filter(function (w) { return w.length > 3; });
+      for (var w = 0; w < words.length; w++) {
+        if (hasPhrase(text, words[w])) return cat.id;
+      }
+    }
+    return null;
+  }
+
+  /* note skip words: "no note", "nothing", "skip"… */
+  var NOTE_SKIP = ['no', 'nope', 'no note', 'nothing', 'skip', "that's all", 'thats all', 'none', 'nah'];
+  function noteIsSkipped(input) {
+    var t = normalize(input);
+    return NOTE_SKIP.indexOf(t) !== -1;
+  }
+
+  var api = {
+    parse: parse,
+    parseKind: parseKind,
+    parseAmountCents: parseAmountCents,
+    matchCategoryGuided: matchCategoryGuided,
+    noteIsSkipped: noteIsSkipped,
+    normalize: normalize,
+    wordsToNumber: wordsToNumber,
+    TYPE_SYNONYMS: TYPE_SYNONYMS,
+  };
   root.MTParser = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

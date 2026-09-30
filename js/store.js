@@ -77,7 +77,7 @@ window.MTStore = (function () {
         { id: uid(), name: 'CIBC Savings', type: 'bank', createdAt: now },
       ],
       transactions: [],
-      settings: { currency: 'CAD', voiceLang: 'en-CA' },
+      settings: { currency: 'CAD', voiceLang: 'en-CA', voicePrompts: true },
     };
   }
 
@@ -110,9 +110,10 @@ window.MTStore = (function () {
       fresh = true;
     }
     if (!Array.isArray(state.transactions)) state.transactions = [];
-    if (!state.settings || typeof state.settings !== 'object') state.settings = { currency: 'CAD', voiceLang: 'en-CA' };
+    if (!state.settings || typeof state.settings !== 'object') state.settings = { currency: 'CAD', voiceLang: 'en-CA', voicePrompts: true };
     if (!state.settings.currency) state.settings.currency = 'CAD';
     if (!state.settings.voiceLang) state.settings.voiceLang = 'en-CA';
+    if (state.settings.voicePrompts === undefined) state.settings.voicePrompts = true;
     save();
     return fresh;
   }
@@ -276,6 +277,7 @@ window.MTStore = (function () {
   function updateSettings(patch) {
     if (patch.currency && CURRENCIES.some((c) => c.id === patch.currency)) state.settings.currency = patch.currency;
     if (patch.voiceLang && VOICE_LANGS.some((l) => l.id === patch.voiceLang)) state.settings.voiceLang = patch.voiceLang;
+    if (patch.voicePrompts !== undefined) state.settings.voicePrompts = !!patch.voicePrompts;
     const last = state.accounts.find((a) => a.id === patch.lastAccountId);
     if (last) state.settings.lastAccountId = last.id;
     commit();

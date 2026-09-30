@@ -262,10 +262,23 @@ window.MTUI = (function () {
       <div class="modal-foot">
         <button class="btn" data-close>Cancel</button>
         <button class="btn btn-primary" data-save-account ${isEdit ? `data-id="${account.id}"` : ''}>${isEdit ? 'Save' : 'Add account'}</button>
-      </div>`, { onOpen: (root) => setTimeout(() => root.querySelector('#f-acct-name').focus(), 30) });
+      </div>`, {
+      onOpen: (root) => setTimeout(() => {
+        const el = root.querySelector('#f-acct-name');
+        if (el) el.focus(); // modal may have closed before the timer fires
+      }, 30),
+    });
   }
 
-  /* ---------- voice capture ---------- */
+  /* ---------- guided voice capture ----------
+   * One question per step — recognition only answers one narrow thing at a
+   * time, far more reliable than parsing a whole sentence. Steps, in order:
+   * kind → amount → account ("paid via") → category ("on what") → note.
+   * The app speaks each question (toggle in Settings) and opens the mic only
+   * after speech ends, so it never transcribes itself. Every step also has
+   * tappable chips, and if the FIRST answer is a whole sentence ("spent 25 on
+   * coffee from cibc current"), all of it is adopted and answered steps are
+   * skipped. Everything still funnels through the same confirm card. */
 
   const VOICE_ERRORS = {
     'not-allowed': 'Microphone is blocked for this page. Click the permissions (lock/tune) icon in the address bar, allow the microphone, then try again.',
@@ -289,83 +302,316 @@ window.MTUI = (function () {
     return msg;
   }
 
-  function setOverlay(state, detail) {
-    const ov = document.getElementById('overlay');
-    const circle = ov.querySelector('.ov-mic');
-    const status = ov.querySelector('.ov-status');
-    const transcript = ov.querySelector('.ov-transcript');
-    if (state === 'requesting') {
-      circle.classList.remove('live');
-      status.textContent = 'Asking for microphone access…';
-      transcript.textContent = 'Approve the browser prompt if one appears';
-    } else if (state === 'listening') {
-      circle.classList.add('live');
-      status.textContent = 'Listening… tap Done when finished';
-      if (detail !== undefined) transcript.textContent = detail || '…';
-    } else if (state === 'error') {
-      circle.classList.remove('live');
-      status.textContent = 'Voice didn’t work';
-      transcript.textContent = detail || '';
-    }
-  }
+  const STEP_COUNT = 5;
+  const guided = {
+    active: false,
+    step: 0,
+    misses: 0,
+    ambiguous: false,
+    answers: { kind: null, amountCents: null, accountId: null, categoryId: null, note: '' },
+    heard: {}, // raw transcript per step, echoed in the confirm card
+  };
 
-  function startListening() {
-    if (!window.MTVoice.supported || !window.isSecureContext && location.protocol === 'http:') {
-      toast(voiceErrorText('unsupported'), 'bad');
-      openTxnModal({ kind: kindOfView() });
-      return;
-    }
-    if (window.MTVoice.isActive()) { window.MTVoice.finish(); return; }
-
-    const ov = document.getElementById('overlay');
-    ov.hidden = false;
-    ov.querySelector('.ov-transcript').textContent = '…';
-    ov.querySelector('.ov-error-actions').hidden = true;
-    setOverlay('requesting');
-
-    window.MTVoice.start({
-      lang: store().settings().voiceLang || 'en-CA',
-      onState: (s) => {
-        if (s === 'requesting') setOverlay('requesting');
-        else if (s === 'listening') {
-          setOverlay('listening');
-          document.getElementById('fab').classList.add('live');
-        }
-      },
-      onInterim: (text) => setOverlay('listening', text),
-      onFinal: (text) => {
-        closeOverlay();
-        const draft = window.MTParser.parse(text, {
-          accounts: store().accounts(),
-          expenseCategories: store().EXPENSE_CATEGORIES,
-          incomeCategories: store().INCOME_CATEGORIES,
-          defaultKind: kindOfView(),
-          today: store().todayISO(),
-        });
-        openTxnModal(draft, { source: 'voice' });
-      },
-      onError: (code) => {
-        setOverlay('error', voiceErrorText(code));
-        ov.querySelector('.ov-error-actions').hidden = false;
-        document.getElementById('fab').classList.remove('live');
-      },
-    });
-  }
-
-  function closeOverlay() {
-    document.getElementById('overlay').hidden = true;
-    document.getElementById('fab').classList.remove('live');
-  }
-
-  function parseQuickAdd(text) {
-    if (!text.trim()) return;
-    const draft = window.MTParser.parse(text, {
+  function fullParseOptions() {
+    return {
       accounts: store().accounts(),
       expenseCategories: store().EXPENSE_CATEGORIES,
       incomeCategories: store().INCOME_CATEGORIES,
       defaultKind: kindOfView(),
       today: store().todayISO(),
+    };
+  }
+
+  function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+  function amountWords(cents) {
+    const d = Math.floor(cents / 100), c = cents % 100;
+    let s = d + (d === 1 ? ' dollar' : ' dollars');
+    if (c) s += ' ' + c + (c === 1 ? ' cent' : ' cents');
+    return s;
+  }
+
+  function guidedQuestion(i) {
+    const a = guided.answers;
+    switch (i) {
+      case 0: return 'Expense or income?';
+      case 1: return 'How much?';
+      case 2: return a.kind === 'income' ? 'Received in which account?' : 'Paid via which account?';
+      case 3: return a.kind === 'income' ? 'Where did it come from?' : 'What was it for?';
+      default: return 'Any note?';
+    }
+  }
+
+  function guidedHint(i) {
+    switch (i) {
+      case 0: return 'Say “expense” or “income” — or just say the whole entry at once';
+      case 1: return 'e.g. “25” · “twenty four fifty” · “2k”';
+      case 2: return 'Say the account name — or tap it below';
+      case 3: return 'e.g. groceries, gas, salary — or say “skip”';
+      default: return 'e.g. “weekly groceries” — or “no note” to skip';
+    }
+  }
+
+  /* Spoken version of the step: confirms the previous answer, then asks. */
+  function guidedSpeech(i) {
+    const a = guided.answers;
+    let said = '';
+    if (i === 1 && a.kind) said = (a.kind === 'income' ? 'Income' : 'Expense') + '. ';
+    if (i === 2 && a.amountCents) said = amountWords(a.amountCents) + '. ';
+    if (i === 3) { const acct = store().accountById(a.accountId); if (acct) said = acct.name + '. '; }
+    if (i === 4 && a.categoryId) said = store().categoryById(a.kind === 'income' ? 'income' : 'expense', a.categoryId).label + '. ';
+    let q = guidedQuestion(i);
+    if (i === 2) {
+      const names = store().accounts().map((x) => x.name);
+      if (names.length && names.length <= 3) q += ' ' + names.join(', or ') + '?';
+    }
+    if (i === 4) q += ' Say "no note" to skip.';
+    return said + q;
+  }
+
+  function guidedChips(i) {
+    const chip = (label, value) => `<button class="chip" data-gchip="${esc(value)}">${esc(label)}</button>`;
+    if (i === 0) return chip('Expense', 'kind:expense') + chip('Income', 'kind:income');
+    if (i === 2) return store().accounts().map((x) => chip(x.name, 'account:' + x.id)).join('');
+    if (i === 3) {
+      const kind = guided.answers.kind === 'income' ? 'income' : 'expense';
+      return store().categoriesFor(kind).map((c) => chip(c.label, 'category:' + c.id)).join('');
+    }
+    if (i === 4) return chip('No note', 'note:');
+    return '';
+  }
+
+  function renderGuidedStep() {
+    const ov = document.getElementById('overlay');
+    ov.querySelector('.ov-mic').classList.remove('live');
+    ov.querySelector('.ov-status').hidden = true;
+    ov.querySelector('.ov-guide').hidden = false;
+    let dots = '';
+    for (let d = 0; d < STEP_COUNT; d++) {
+      dots += `<span class="ov-dot ${d < guided.step ? 'done' : d === guided.step ? 'now' : ''}"></span>`;
+    }
+    ov.querySelector('.ov-dots').innerHTML = dots;
+    ov.querySelector('.ov-question').textContent = guidedQuestion(guided.step);
+    ov.querySelector('.ov-transcript').textContent = '…';
+    const chips = ov.querySelector('.ov-chips');
+    chips.innerHTML = guidedChips(guided.step);
+    chips.hidden = !chips.innerHTML;
+    ov.querySelector('.ov-hint').textContent = guidedHint(guided.step);
+    ov.querySelector('[data-step-back]').hidden = guided.step === 0;
+    ov.querySelector('[data-listen-done]').hidden = false;
+  }
+
+  function guidedAsk(nudge) {
+    if (!guided.active) return;
+    renderGuidedStep();
+    const promptsOn = store().settings().voicePrompts !== false;
+    const say = (nudge ? 'Sorry, didn’t catch that. ' : '') + guidedSpeech(guided.step);
+    if (promptsOn) window.MTVoice.speak(say, guidedListen);
+    else guidedListen();
+  }
+
+  function guidedListen() {
+    if (!guided.active) return;
+    const ov = document.getElementById('overlay');
+    window.MTVoice.start({
+      lang: store().settings().voiceLang || 'en-CA',
+      onState: (s) => {
+        if (!guided.active) return;
+        if (s === 'requesting') ov.querySelector('.ov-transcript').textContent = 'Asking for microphone access…';
+        else if (s === 'listening') ov.querySelector('.ov-mic').classList.add('live');
+      },
+      onInterim: (t) => { if (guided.active) ov.querySelector('.ov-transcript').textContent = t || '…'; },
+      onFinal: (text) => {
+        ov.querySelector('.ov-mic').classList.remove('live');
+        if (guided.active) guidedAnswer(text);
+      },
+      onError: (code) => {
+        if (!guided.active) return;
+        ov.querySelector('.ov-mic').classList.remove('live');
+        if (code === 'no-speech') { guidedAsk(true); return; } // same step, gentle retry
+        guided.active = false;
+        document.getElementById('fab').classList.remove('live');
+        guidedError(code);
+      },
     });
+  }
+
+  const VOICE_CANCEL_WORDS = ['cancel', 'never mind', 'nevermind', 'stop', 'quit', 'forget it'];
+
+  function guidedAnswer(text) {
+    if (!guided.active) return;
+    const i = guided.step;
+    const a = guided.answers;
+    const norm = window.MTParser.normalize(text);
+
+    if (VOICE_CANCEL_WORDS.indexOf(norm) !== -1) return cancelGuided();
+    if (norm === 'back' || norm === 'go back') {
+      if (i > 0) guided.step = i - 1;
+      return guidedAsk();
+    }
+
+    guided.heard[i] = text.trim();
+    let ok = true;
+
+    if (i === 0) {
+      const kind = window.MTParser.parseKind(text);
+      if (kind) {
+        a.kind = kind;
+      } else {
+        // Did they just say the whole entry at once? Adopt everything it gave.
+        const full = window.MTParser.parse(text, fullParseOptions());
+        if (full.amountCents || full.accountId || full.categoryId) {
+          if (full.kind) a.kind = full.kind;
+          a.amountCents = full.amountCents;
+          if (full.accountId) { a.accountId = full.accountId; guided.ambiguous = false; }
+          if (full.categoryId) a.categoryId = full.categoryId;
+          if (full.note) a.note = full.note;
+          return advance(guidedNextUnanswered());
+        }
+        ok = false;
+      }
+    } else if (i === 1) {
+      const cents = window.MTParser.parseAmountCents(text);
+      if (cents) a.amountCents = cents; else ok = false;
+    } else if (i === 2) {
+      const r = accountMatch(text);
+      if (r.account) { a.accountId = r.account.id; guided.ambiguous = false; }
+      else { if (r.ambiguous) guided.ambiguous = true; ok = false; }
+    } else if (i === 3) {
+      const cats = store().categoriesFor(a.kind === 'income' ? 'income' : 'expense');
+      if (['skip', 'other', 'none', 'no category', 'nothing'].indexOf(norm) !== -1) {
+        a.categoryId = 'other';
+      } else {
+        const id = window.MTParser.matchCategoryGuided(text, cats);
+        if (id) a.categoryId = id; else ok = false;
+      }
+    } else {
+      a.note = window.MTParser.noteIsSkipped(text) ? '' : capitalize(text.trim()).slice(0, 120);
+      return finishGuided();
+    }
+
+    if (ok) return advance(i + 1);
+    guided.misses += 1;
+    if (guided.misses >= 2) {
+      // Stop blocking — leave the field empty; the confirm card forces it.
+      if (i === 0 && !a.kind) a.kind = kindOfView();
+      return advance(i + 1);
+    }
+    guidedAsk(true);
+  }
+
+  /* Account matching for the guided step — full parse has it internally;
+   * here we reuse the full parser with a fake sentence so a bare "current"
+   * still resolves against account names and type synonyms. */
+  function accountMatch(text) {
+    const accounts = store().accounts();
+    const full = window.MTParser.parse('x ' + text, fullParseOptions());
+    const acct = accounts.find((x) => x.id === full.accountId) || null;
+    return { account: acct, ambiguous: !acct && full.accountAmbiguous };
+  }
+
+  function guidedNextUnanswered() {
+    const a = guided.answers;
+    if (!a.kind) return 0;
+    if (a.amountCents === null) return 1;
+    if (!a.accountId) return 2;
+    if (!a.categoryId) return 3;
+    if (!a.note) return 4;
+    return STEP_COUNT;
+  }
+
+  function advance(next) {
+    guided.misses = 0;
+    if (next >= STEP_COUNT) return finishGuided();
+    guided.step = next;
+    guidedAsk();
+  }
+
+  function finishGuided() {
+    const a = guided.answers;
+    const heardBits = [];
+    for (let k = 0; k < STEP_COUNT; k++) if (guided.heard[k]) heardBits.push(guided.heard[k]);
+    const draft = {
+      kind: a.kind || kindOfView(),
+      amountCents: a.amountCents,
+      accountId: a.accountId,
+      accountAmbiguous: guided.ambiguous && !a.accountId,
+      categoryId: a.categoryId || 'other',
+      date: store().todayISO(),
+      note: a.note || '',
+      raw: heardBits.join(' · '),
+    };
+    guidedTeardown();
+    if (store().settings().voicePrompts !== false) window.MTVoice.speak('Review and save.');
+    openTxnModal(draft, { source: 'voice' });
+  }
+
+  function guidedTeardown() {
+    guided.active = false;
+    closeOverlay();
+  }
+
+  function cancelGuided() {
+    window.MTVoice.cancel();
+    guidedTeardown();
+  }
+
+  function guidedError(code) {
+    const ov = document.getElementById('overlay');
+    ov.querySelector('.ov-mic').classList.remove('live');
+    ov.querySelector('.ov-guide').hidden = true;
+    ov.querySelector('.ov-chips').hidden = true;
+    ov.querySelector('[data-step-back]').hidden = true;
+    const st = ov.querySelector('.ov-status');
+    st.hidden = false;
+    st.textContent = 'Voice didn’t work';
+    ov.querySelector('.ov-transcript').textContent = voiceErrorText(code);
+    ov.querySelector('.ov-hint').textContent = '';
+    ov.querySelector('.ov-error-actions').hidden = false;
+  }
+
+  function startGuided() {
+    if (!window.MTVoice.supported || (!window.isSecureContext && location.protocol === 'http:')) {
+      toast(voiceErrorText('unsupported'), 'bad');
+      openTxnModal({ kind: kindOfView() });
+      return;
+    }
+    if (!store().accounts().length) {
+      openConfirm({
+        title: 'Create an account first',
+        body: 'Every earning and expense needs an account (bank, credit card, cash). Add one in Settings to get started.',
+        confirmLabel: 'Open Settings',
+        onConfirm: () => setView('settings'),
+      });
+      return;
+    }
+    if (window.MTVoice.isActive()) { window.MTVoice.finish(); return; }
+
+    guided.active = true;
+    guided.step = 0;
+    guided.misses = 0;
+    guided.ambiguous = false;
+    guided.answers = { kind: null, amountCents: null, accountId: null, categoryId: null, note: '' };
+    guided.heard = {};
+
+    const ov = document.getElementById('overlay');
+    ov.hidden = false;
+    ov.querySelector('.ov-error-actions').hidden = true;
+    document.getElementById('fab').classList.add('live');
+    guidedAsk();
+  }
+
+  function closeOverlay() {
+    const ov = document.getElementById('overlay');
+    ov.hidden = true;
+    ov.querySelector('.ov-mic').classList.remove('live');
+    ov.querySelector('[data-step-back]').hidden = true;
+    document.getElementById('fab').classList.remove('live');
+  }
+
+  function parseQuickAdd(text) {
+    if (!text.trim()) return;
+    const draft = window.MTParser.parse(text, fullParseOptions());
     openTxnModal(draft, { source: 'voice' /* shared confirm flow */ });
   }
 
@@ -546,6 +792,10 @@ window.MTUI = (function () {
             </select>
           </label>
         </div>
+        <label class="check-field">
+          <input type="checkbox" data-setting-bool="voicePrompts" ${s.voicePrompts !== false ? 'checked' : ''}>
+          <span>Speak the guided questions out loud before listening</span>
+        </label>
       </section>
 
       <section class="card">
@@ -602,7 +852,7 @@ window.MTUI = (function () {
     NAV.forEach((n) => { /* nav buttons are static in index.html */ });
 
     document.addEventListener('click', (e) => {
-      const el = e.target.closest('[data-nav],[data-action],[data-chip],[data-month],[data-txn],[data-del-txn],[data-del-yes],[data-del-no],[data-acct-add],[data-acct-edit],[data-acct-del],[data-export],[data-import],[data-erase],[data-close],[data-confirm-yes],[data-save-txn],[data-save-account],[data-listen-done],[data-listen-cancel],[data-listen-typed]');
+      const el = e.target.closest('[data-nav],[data-action],[data-chip],[data-month],[data-txn],[data-del-txn],[data-del-yes],[data-del-no],[data-acct-add],[data-acct-edit],[data-acct-del],[data-export],[data-import],[data-erase],[data-close],[data-confirm-yes],[data-save-txn],[data-save-account],[data-listen-done],[data-listen-cancel],[data-listen-typed],[data-gchip],[data-step-back]');
       if (!el) return;
 
       if (el.dataset.nav) return setView(el.dataset.nav);
@@ -672,16 +922,39 @@ window.MTUI = (function () {
       }
 
       if (el.dataset.listenDone !== undefined) { window.MTVoice.finish(); return; }
-      if (el.dataset.listenCancel !== undefined) { window.MTVoice.cancel(); closeOverlay(); return; }
+      if (el.dataset.listenCancel !== undefined) { cancelGuided(); return; }
       if (el.dataset.listenTyped !== undefined) {
-        window.MTVoice.cancel();
-        closeOverlay();
+        cancelGuided();
         const qa = document.getElementById('quickadd');
         if (qa) qa.focus(); else openTxnModal({ kind: kindOfView() });
         return;
       }
 
-      if (el.dataset.action === 'fab-mic' || el.dataset.action === 'qa-mic') return startListening();
+      /* guided-flow controls */
+      if (el.dataset.stepBack !== undefined) {
+        if (guided.active && guided.step > 0) {
+          window.MTVoice.cancel();
+          guided.step -= 1;
+          guided.misses = 0;
+          guidedAsk();
+        }
+        return;
+      }
+      if (el.dataset.gchip) {
+        if (!guided.active) return;
+        const idx = el.dataset.gchip.indexOf(':');
+        const field = el.dataset.gchip.slice(0, idx);
+        const val = el.dataset.gchip.slice(idx + 1);
+        window.MTVoice.cancel(); // stop listening/speaking; guided state survives
+        guided.heard[guided.step] = el.textContent.trim();
+        if (field === 'kind') guided.answers.kind = val === 'income' ? 'income' : 'expense';
+        else if (field === 'account') { guided.answers.accountId = val; guided.ambiguous = false; }
+        else if (field === 'category') guided.answers.categoryId = val;
+        else if (field === 'note') guided.answers.note = '';
+        return advance(guided.step + 1);
+      }
+
+      if (el.dataset.action === 'fab-mic' || el.dataset.action === 'qa-mic') return startGuided();
       if (el.dataset.action === 'add-open') return openTxnModal({ kind: kindOfView() });
     });
 
@@ -689,7 +962,7 @@ window.MTUI = (function () {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (!document.getElementById('modal-root').hidden) closeModal();
-        else if (!document.getElementById('overlay').hidden) { window.MTVoice.cancel(); closeOverlay(); }
+        else if (!document.getElementById('overlay').hidden) cancelGuided();
         return;
       }
       if (e.target.id === 'quickadd' && e.key === 'Enter') {
@@ -729,6 +1002,10 @@ window.MTUI = (function () {
       }
       if (e.target.dataset && e.target.dataset.setting) {
         store().updateSettings({ [e.target.dataset.setting]: e.target.value });
+        toast('Preference saved.', 'good');
+      }
+      if (e.target.dataset && e.target.dataset.settingBool) {
+        store().updateSettings({ [e.target.dataset.settingBool]: e.target.checked });
         toast('Preference saved.', 'good');
       }
     });

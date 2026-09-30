@@ -94,5 +94,43 @@ check('note keeps trailing words', parse('spent 24 on groceries for weekly suppl
 check('note strips stopwords', parse('paid 60 for internet').note, '');
 check('empty input safe', (() => { const d = parse(''); return d.amountCents === null && d.kind === null; })(), true);
 
+/* Guided-voice helpers — one narrow answer per step (js/ui.js guided flow). */
+
+console.log('— guided: parseKind —');
+check('expense word', parser.parseKind('expense'), 'expense');
+check('income word', parser.parseKind('income'), 'income');
+check('verb cue: spent', parser.parseKind('spent'), 'expense');
+check('verb cue: earned', parser.parseKind('earned some money'), 'income');
+check('gibberish -> null', parser.parseKind('blah blah'), null);
+check('empty -> null', parser.parseKind(''), null);
+
+console.log('— guided: parseAmountCents —');
+check('bare digits', parser.parseAmountCents('25'), 2500);
+check('decimal', parser.parseAmountCents('12.50'), 1250);
+check('words', parser.parseAmountCents('twenty four fifty'), 2450);
+check('k suffix', parser.parseAmountCents('2k'), 200000);
+check('no number -> null', parser.parseAmountCents('no idea'), null);
+check('dollars-and-cents words', parser.parseAmountCents('two dollars fifty cents'), 250);
+check('plain tens+ones stays dollars', parser.parseAmountCents('twenty five'), 2500);
+check('hundred form stays whole', parser.parseAmountCents('one hundred and twenty'), 12000);
+check('cents only', parser.parseAmountCents('fifty cents'), 50);
+check('ones-then-tens cents', parser.parseAmountCents('four fifty'), 450);
+
+console.log('— guided: matchCategoryGuided —');
+check('keyword', parser.matchCategoryGuided('groceries', EXPENSE_CATEGORIES), 'groceries');
+check('keyword in phrase', parser.matchCategoryGuided('it was coffee', EXPENSE_CATEGORIES), 'dining');
+check('income keyword', parser.matchCategoryGuided('salary', INCOME_CATEGORIES), 'salary');
+check('unknown -> null', parser.matchCategoryGuided('space rockets', EXPENSE_CATEGORIES), null);
+
+console.log('— guided: noteIsSkipped —');
+check('no note', parser.noteIsSkipped('no note'), true);
+check('nothing', parser.noteIsSkipped('nothing'), true);
+check('skip', parser.noteIsSkipped('skip'), true);
+check('real note kept', parser.noteIsSkipped('weekly groceries'), false);
+
+console.log('— guided: accountMatch via parse —');
+check('name token', parse('in cibc savings').accountId, 'a2');
+check('credit synonym', parse('on credit card').accountId, 'a3');
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);
