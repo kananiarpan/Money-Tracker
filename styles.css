@@ -238,6 +238,52 @@ svg { width: 18px; height: 18px; flex: none; }
 .bd-fill { height: 12px; border-radius: 0 4px 4px 0; flex: none; min-width: 2px; }
 .bd-value { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
 
+/* ---------- analytics ---------- */
+
+/* Range-breakdown rows show "<amount> · <share>" plus a delta chip — the wide
+ * variant reserves a bigger value lane than the month views' 80px. */
+.bd-track-wide { padding-right: 170px; }
+.bd-delta {
+  flex: none;
+  font-size: 11px;
+  font-weight: 620;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.bd-delta.good { color: var(--good); }
+.bd-delta.bad  { color: var(--warn); }
+
+/* Chart.js canvas wrappers — fixed height, width follows the card */
+.chart-box { position: relative; height: 280px; }
+
+/* cash-flow table view (a11y alternate + offline fallback) */
+.cf-details { margin-top: 10px; }
+.cf-details summary { cursor: pointer; color: var(--ink-3); font-size: 12.5px; }
+.cf-details summary:hover { color: var(--ink-2); }
+.cf-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.cf-table th {
+  text-align: left;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 6px 8px;
+}
+.cf-table td { padding: 6px 8px; border-top: 1px solid var(--line); font-size: 13px; }
+.offline-hint { color: var(--ink-3); font-size: 12.5px; margin: 10px 0 0; }
+
+/* insights feed */
+.ins { display: flex; flex-direction: column; }
+.ins-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 4px; }
+.ins-row + .ins-row { border-top: 1px solid var(--line); }
+.ins-row .dot { margin-top: 6px; flex: none; }
+.ins-title { font-weight: 580; font-size: 13.5px; }
+.ins-body { color: var(--ink-2); font-size: 13px; }
+
 /* ---------- transaction list ---------- */
 
 .list-card { padding: 8px 12px; }
@@ -586,7 +632,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.6); cur
   .field-row { grid-template-columns: 1fr; }
   .bd-row { grid-template-columns: 112px 1fr; gap: 10px; }
   .bd-track { padding-right: 66px; }
+  .bd-track-wide { padding-right: 128px; }
   .bd-value { font-size: 12px; }
+  .chart-box { height: 230px; }
   .month-label { min-width: 110px; }
   .modal { margin: 0; position: fixed; left: 0; right: 0; bottom: 0; max-width: none; max-height: 92vh; border-radius: 16px 16px 0 0; }
   .del-btn { opacity: 1; }

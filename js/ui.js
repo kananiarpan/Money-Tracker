@@ -17,6 +17,7 @@ window.MTUI = (function () {
   const ICONS = {
     expense: I('<path d="M7 7l10 10"/><path d="M17 17v-7"/><path d="M17 17h-7"/>'),
     earnings: I('<path d="M7 17L17 7"/><path d="M17 7h-7"/><path d="M17 7v7"/>'),
+    analytics: I('<path d="M4 20v-5"/><path d="M9 20V6"/><path d="M14 20v-9"/><path d="M19 20V11"/><path d="M4 14.5L9 10l5 4 6-6.5"/>'),
     invest: I('<path d="M5 20v-6"/><path d="M12 20V8"/><path d="M19 20v-9"/><path d="M3 20h18"/>'),
     settings: I('<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="17" r="2"/>'),
     mic: I('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/>'),
@@ -39,6 +40,7 @@ window.MTUI = (function () {
   const NAV = [
     { id: 'expense', label: 'Expenses', icon: 'expense' },
     { id: 'earnings', label: 'Earnings', icon: 'earnings' },
+    { id: 'analytics', label: 'Analytics', icon: 'analytics' },
     { id: 'invest', label: 'Invest', icon: 'invest' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
@@ -51,9 +53,14 @@ window.MTUI = (function () {
     view: 'expense',
     month: store().todayISO().slice(0, 7),
     accountFilter: 'all',
+    range: '6M',
     pendingDelete: null,
   };
   let confirmCallback = null;
+  /* Chart.js instances live outside the innerHTML-rendered DOM; destroy()
+   * before every swap or tooltip listeners ghost onto dead canvases. */
+  const charts = {};
+  let pendingCharts = null;
 
   /* ---------- formatting ---------- */
 
@@ -618,9 +625,13 @@ window.MTUI = (function () {
 
   /* ---------- stat tiles (dataviz: headline numbers -> KPI tiles) ---------- */
 
-  function tile({ label, cents, prev, upIsGood, emphasized }) {
+  function tile({ label, cents, prev, upIsGood, emphasized, value, deltaText, deltaTone }) {
     let delta = '';
-    if (prev > 0) {
+    if (deltaText !== undefined) {
+      /* full override — the default wording hard-codes "vs <prev month>" and
+       * doesn't fit range-based or percentage tiles */
+      delta = deltaText ? `<span class="tile-delta ${deltaTone || ''}">${deltaText}</span>` : '';
+    } else if (prev > 0) {
       const pct = Math.round(((cents - prev) / prev) * 100);
       if (pct !== 0) {
         const up = pct > 0;
@@ -630,7 +641,7 @@ window.MTUI = (function () {
     }
     return `<div class="tile ${emphasized ? 'tile-on' : ''}">
       <div class="tile-label">${esc(label)}</div>
-      <div class="tile-value">${fmt(cents, { signed: label === 'Net' })}</div>
+      <div class="tile-value">${value !== undefined ? value : fmt(cents, { signed: label === 'Net' })}</div>
       ${delta}
     </div>`;
   }
@@ -823,15 +834,285 @@ window.MTUI = (function () {
       </section>`;
   }
 
+  /* ---------- analytics view ---------- */
+
+  const RANGE_LABELS = { '3M': '3M', '6M': '6M', '12M': '1Y', YTD: 'YTD', ALL: 'All' };
+  /* Cash-flow series hues: from the validated dark ramp (ΔE checked on our
+   * surface). The red/green pair sits in the validator's 6–8 CVD band, which
+   * is legal only with secondary encoding — here the labeled legend, grouped
+   * bar gaps and tooltips carry identity, never color alone. Categories reuse
+   * these hues on OTHER cards; within each chart every series is direct-labeled. */
+  const FLOW_IN = '#199e70', FLOW_OUT = '#e66767';
+
+  const az = () => window.MTAnalytics;
+
+  function analyticsFilter(txns) {
+    return ui.accountFilter === 'all' ? txns : txns.filter((t) => t.accountId === ui.accountFilter);
+  }
+  function txnsInMonths(txns, months) {
+    return txns.filter((t) => months.indexOf(t.date.slice(0, 7)) !== -1);
+  }
+  /* % delta tile chip for range comparisons (wording: "vs prev N mo"). */
+  function rangeDelta(curV, prevV, upIsGood, n) {
+    if (!prevV || prevV <= 0) return { text: '', tone: '' };
+    const pct = Math.round(((curV - prevV) / prevV) * 100);
+    if (!pct) return { text: '', tone: '' };
+    return {
+      text: `${pct > 0 ? '▲' : '▼'} ${Math.abs(pct)}% <span class="tile-vs">vs prev ${n} mo</span>`,
+      tone: (pct > 0) === upIsGood ? 'good' : 'bad',
+    };
+  }
+  function axisMoney(dollars) {
+    const a = Math.abs(dollars);
+    return (dollars < 0 ? '−$' : '$') + (a >= 1000 ? +(a / 1000).toFixed(a >= 10000 ? 0 : 1) + 'k' : a);
+  }
+
+  function destroyAnalyticsCharts() {
+    for (const k of Object.keys(charts)) {
+      try { charts[k].destroy(); } catch (_) { /* chart already torn down */ }
+      delete charts[k];
+    }
+  }
+
+  /* Range breakdown — markup pattern of breakdownCard() (which is single-month
+   * and store-bound) over MTAnalytics.range aggregates, plus delta chips. */
+  function rangeBreakdownCard(kind, txns, months, prevMonths) {
+    const cats = store().categoriesFor(kind);
+    const cur = az().categoryTotals(txnsInMonths(txns, months), kind, cats);
+    if (!cur.rows.length) return '';
+    const prev = az().categoryTotals(txnsInMonths(txns, prevMonths), kind, cats);
+    const deltas = az().categoryDeltas(cur.rows, prev.rows);
+    const max = cur.rows[0].cents;
+    const title = kind === 'expense' ? 'Where it went' : 'Where it came from';
+    const scope = kind === 'expense' ? 'spending' : 'earnings';
+    const bars = cur.rows.map((r) => {
+      const w = Math.max((r.cents / max) * 100, 1.5);
+      const pct = Math.round(r.share * 100);
+      const d = deltas[r.id];
+      let chip = '';
+      if (d && d.rel !== null && Math.abs(d.rel) >= 0.01) {
+        const up = d.rel > 0;
+        const good = kind === 'expense' ? !up : up;
+        chip = `<span class="bd-delta ${good ? 'good' : 'bad'}">${up ? '▲' : '▼'}${Math.round(Math.abs(d.rel) * 100)}%</span>`;
+      }
+      return `<div class="bd-row" title="${esc(fmt(r.cents))} · ${pct}% of ${scope} in range">
+        <div class="bd-label"><span class="dot" style="background:${r.color}"></span><span class="bd-name">${esc(r.label)}</span></div>
+        <div class="bd-track bd-track-wide"><div class="bd-fill" style="width:${w}%; background:${r.color}"></div>
+          <span class="bd-value">${fmt(r.cents)} · ${pct}%</span>${chip}</div>
+      </div>`;
+    }).join('');
+    return `<section class="card"><h3 class="card-title">${title}</h3><div class="bd">${bars}</div></section>`;
+  }
+
+  function flowTable(flow) {
+    const rows = flow.map((r) =>
+      `<tr><td>${esc(r.label)}</td><td>${r.earned ? fmt(r.earned) : '—'}</td><td>${r.spent ? fmt(r.spent) : '—'}</td><td>${fmt(r.net, { signed: true })}</td></tr>`).join('');
+    return `<table class="cf-table"><thead><tr><th>Month</th><th>In</th><th>Out</th><th>Net</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function insightsCard(list) {
+    if (!list.length) return '';
+    const rows = list.map((x) => {
+      const color = x.tone === 'good' ? 'var(--good)' : (x.tone === 'bad' ? 'var(--warn)' : 'var(--ink-3)');
+      return `<div class="ins-row"><span class="dot" style="background:${color}"></span>
+        <div class="ins-main"><div class="ins-title">${esc(x.title)}</div><div class="ins-body">${esc(x.body)}</div></div>
+      </div>`;
+    }).join('');
+    return `<section class="card"><h3 class="card-title">Insights</h3><div class="ins">${rows}</div></section>`;
+  }
+
+  function renderAnalytics() {
+    const A = az();
+    const today = store().todayISO();
+    const txns = analyticsFilter(store().transactions());
+    const accounts = store().accounts();
+    const first = txns.length ? txns.reduce((min, t) => (t.date < min ? t.date : min), txns[0].date) : null;
+    const months = A.monthKeys(ui.range, today, first);
+    const prevMonths = A.prevMonthKeys(ui.range, today, first);
+    const inRange = txnsInMonths(txns, months);
+
+    const rangeChips = A.RANGES.map((r) =>
+      `<button class="chip ${ui.range === r ? 'chip-on' : ''}" data-range="${r}" aria-pressed="${ui.range === r}">${RANGE_LABELS[r]}</button>`).join('');
+    const acctChips = accounts.length > 1
+      ? [`<button class="chip ${ui.accountFilter === 'all' ? 'chip-on' : ''}" data-chip="all" aria-pressed="${ui.accountFilter === 'all'}">All accounts</button>`]
+          .concat(accounts.map((a) =>
+            `<button class="chip ${ui.accountFilter === a.id ? 'chip-on' : ''}" data-chip="${a.id}" aria-pressed="${ui.accountFilter === a.id}">${esc(a.name)}</button>`)).join('')
+      : '';
+
+    if (!txns.length) {
+      pendingCharts = null;
+      return `<div class="chip-row">${rangeChips}</div>
+        <section class="card empty-card">
+          <div class="empty-icon">${ICONS.analytics}</div>
+          <p>Nothing to analyse yet.</p>
+          <p class="empty-hint">Add entries from the Expenses or Earnings tab — analytics build themselves from whatever you record.</p>
+        </section>`;
+    }
+
+    const cur = A.rangeTotals(inRange, months);
+    const prev = A.rangeTotals(inRange, prevMonths);
+    const n = months.length;
+    const dE = rangeDelta(cur.earned, prev.earned, true, n);
+    const dS = rangeDelta(cur.spent, prev.spent, false, n);
+    const rateText = cur.earned > 0 ? Math.round((cur.net / cur.earned) * 100) + '%' : '—';
+    let dR = { text: '', tone: '' };
+    if (cur.earned > 0 && prev.earned > 0) {
+      const diff = Math.round((cur.net / cur.earned - prev.net / prev.earned) * 100);
+      if (diff) dR = {
+        text: `${diff > 0 ? '▲' : '▼'} ${Math.abs(diff)} pts <span class="tile-vs">vs prev ${n} mo</span>`,
+        tone: diff > 0 ? 'good' : 'bad',
+      };
+    }
+
+    const flow = A.cashFlow(inRange, months);
+    const bal = A.balanceSeries(inRange, A.rangeStartISO(months), today < A.rangeEndISO(months) ? today : A.rangeEndISO(months));
+    const ideas = A.insights({
+      txns: inRange, months, prevMonths, today,
+      expenseCategories: store().categoriesFor('expense'),
+      incomeCategories: store().categoriesFor('income'),
+      fmt: (c) => fmt(c), dLabel: (iso) => dayLabel(iso),
+    });
+
+    pendingCharts = window.Chart ? { flow, bal } : null;
+    const flowBody = window.Chart
+      ? `<div class="chart-box"><canvas id="chart-flow" role="img" aria-label="Bar chart of monthly income versus spending"></canvas></div>
+         <details class="cf-details"><summary>View as table</summary>${flowTable(flow)}</details>`
+      : `${flowTable(flow)}<p class="offline-hint">Charts load from a CDN — connect to the internet once and refresh to see them live.</p>`;
+    const balBody = window.Chart
+      ? `<div class="chart-box"><canvas id="chart-balance" role="img" aria-label="Line chart of recorded balance over time"></canvas></div>`
+      : `<p class="offline-hint">Balance today: ${fmt(bal.length ? bal[bal.length - 1].cents : 0)}. The trend chart loads from a CDN — connect once and refresh.</p>`;
+
+    return `
+      <div class="chip-row">${rangeChips}</div>
+      ${acctChips ? `<div class="chip-row">${acctChips}</div>` : ''}
+
+      <section class="kpi-row">
+        ${tile({ label: 'Earned', cents: cur.earned, deltaText: dE.text, deltaTone: dE.tone, emphasized: true })}
+        ${tile({ label: 'Spent', cents: cur.spent, deltaText: dS.text, deltaTone: dS.tone })}
+        ${tile({ label: 'Savings rate', value: rateText, deltaText: dR.text, deltaTone: dR.tone })}
+      </section>
+
+      <section class="card">
+        <h3 class="card-title">Cash flow</h3>
+        ${flowBody}
+      </section>
+
+      ${rangeBreakdownCard('expense', txns, months, prevMonths)}
+      ${rangeBreakdownCard('income', txns, months, prevMonths)}
+
+      <section class="card">
+        <h3 class="card-title">Balance trend</h3>
+        <p class="card-sub">Recorded activity only — balances derive from your entries.</p>
+        ${balBody}
+      </section>
+
+      ${insightsCard(ideas)}`;
+  }
+
+  /* Charts mount AFTER the innerHTML swap — canvases must exist in the DOM. */
+  function mountAnalyticsCharts() {
+    if (!pendingCharts || !window.Chart) return;
+    const C = window.Chart;
+    C.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    C.defaults.color = '#9aa3b2';
+    const GRID = 'rgba(255,255,255,0.07)', EDGE = 'rgba(255,255,255,0.14)', MUTED = '#6b7280';
+
+    const { flow, bal } = pendingCharts;
+    pendingCharts = null;
+
+    const flowEl = document.getElementById('chart-flow');
+    if (flowEl) {
+      charts.flow = new C(flowEl, {
+        type: 'bar',
+        data: {
+          labels: flow.map((r) => r.label),
+          datasets: [
+            { label: 'Income', data: flow.map((r) => r.earned / 100), backgroundColor: FLOW_IN, borderRadius: 4, borderSkipped: 'start' },
+            { label: 'Spending', data: flow.map((r) => r.spent / 100), backgroundColor: FLOW_OUT, borderRadius: 4, borderSkipped: 'start' },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, borderRadius: 5, useBorderRadius: true } },
+            tooltip: {
+              callbacks: {
+                label: (c) => ` ${c.dataset.label}: ${fmt(Math.round(c.parsed.y * 100))}`,
+                footer: (items) => {
+                  const i = items[0].dataIndex;
+                  return 'Net: ' + fmt(flow[i].net, { signed: true });
+                },
+              },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: MUTED }, border: { color: EDGE } },
+            y: { beginAtZero: true, grid: { color: GRID }, border: { display: false }, ticks: { color: MUTED, callback: axisMoney, maxTicksLimit: 6 } },
+          },
+        },
+      });
+    }
+
+    const balEl = document.getElementById('chart-balance');
+    if (balEl) {
+      charts.balance = new C(balEl, {
+        type: 'line',
+        data: {
+          labels: bal.map((p) => p.date),
+          datasets: [{
+            label: 'Balance',
+            data: bal.map((p) => p.cents / 100),
+            borderColor: '#3987e5',
+            backgroundColor: 'rgba(57,135,229,0.12)',
+            fill: 'origin',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHitRadius: 14,
+            tension: 0.25,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false }, /* single series — the card title names it */
+            tooltip: {
+              callbacks: {
+                title: (items) => dayLabel(bal[items[0].dataIndex].date),
+                label: (c) => ` Balance: ${fmt(Math.round(c.parsed.y * 100))}`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false }, border: { color: EDGE },
+              ticks: {
+                color: MUTED, maxTicksLimit: 6,
+                callback: function (v) {
+                  const ym = this.getLabelForValue(v).slice(0, 7);
+                  return monthShort(ym) + (ym.slice(5, 7) === '01' ? ' ’' + ym.slice(2, 4) : '');
+                },
+              },
+            },
+            y: { grid: { color: GRID }, border: { display: false }, ticks: { color: MUTED, callback: axisMoney, maxTicksLimit: 6 } },
+          },
+        },
+      });
+    }
+  }
+
   /* ---------- render ---------- */
 
   function render() {
+    destroyAnalyticsCharts();
     document.querySelectorAll('[data-nav]').forEach((b) => {
       b.classList.toggle('nav-on', b.dataset.nav === ui.view);
       b.setAttribute('aria-current', b.dataset.nav === ui.view ? 'page' : 'false');
     });
 
-    const titles = { expense: 'Expenses', earnings: 'Earnings', invest: 'Invest', settings: 'Settings' };
+    const titles = { expense: 'Expenses', earnings: 'Earnings', analytics: 'Analytics', invest: 'Invest', settings: 'Settings' };
     document.getElementById('view-title').textContent = titles[ui.view];
     const monthNav = document.getElementById('month-nav');
     const isTxn = ui.view === 'expense' || ui.view === 'earnings';
@@ -842,6 +1123,7 @@ window.MTUI = (function () {
     const main = document.getElementById('view');
     if (ui.view === 'expense') main.innerHTML = renderTxnView('expense');
     else if (ui.view === 'earnings') main.innerHTML = renderTxnView('income');
+    else if (ui.view === 'analytics') { main.innerHTML = renderAnalytics(); mountAnalyticsCharts(); }
     else if (ui.view === 'invest') main.innerHTML = renderInvest();
     else main.innerHTML = renderSettings();
   }
@@ -860,12 +1142,13 @@ window.MTUI = (function () {
     NAV.forEach((n) => { /* nav buttons are static in index.html */ });
 
     document.addEventListener('click', (e) => {
-      const el = e.target.closest('[data-nav],[data-action],[data-chip],[data-month],[data-txn],[data-del-txn],[data-del-yes],[data-del-no],[data-acct-add],[data-acct-edit],[data-acct-del],[data-export],[data-import],[data-erase],[data-close],[data-confirm-yes],[data-save-txn],[data-save-account],[data-listen-done],[data-listen-cancel],[data-listen-typed],[data-gchip],[data-step-back]');
+      const el = e.target.closest('[data-nav],[data-action],[data-chip],[data-range],[data-month],[data-txn],[data-del-txn],[data-del-yes],[data-del-no],[data-acct-add],[data-acct-edit],[data-acct-del],[data-export],[data-import],[data-erase],[data-close],[data-confirm-yes],[data-save-txn],[data-save-account],[data-listen-done],[data-listen-cancel],[data-listen-typed],[data-gchip],[data-step-back]');
       if (!el) return;
 
       if (el.dataset.nav) return setView(el.dataset.nav);
       if (el.dataset.month) { ui.month = shiftMonth(ui.month, Number(el.dataset.month)); ui.pendingDelete = null; return render(); }
       if (el.dataset.chip) { ui.accountFilter = el.dataset.chip; ui.pendingDelete = null; return render(); }
+      if (el.dataset.range) { ui.range = el.dataset.range; return render(); }
 
       if (el.dataset.close !== undefined) return closeModal();
       if (el.dataset.confirmYes !== undefined) { const cb = confirmCallback; closeModal(); if (cb) cb(); return; }

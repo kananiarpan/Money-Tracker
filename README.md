@@ -16,6 +16,7 @@ On your very first visit, add your accounts in **Settings** (e.g. your chequing 
 |---|---|
 | **Expenses** | ✅ Full — log, edit, delete, category breakdown, per-account filtering |
 | **Earnings** | ✅ Full — same flow for income |
+| **Analytics** | ✅ Full — cash-flow chart, category breakdowns with period deltas, balance trend, insights feed |
 | **Invest** | 🔜 Placeholder — planned next (holdings per account, voice contributions, growth chart) |
 | **Settings** | ✅ Accounts, currency, voice language, spoken prompts on/off, export / import / erase |
 
@@ -40,6 +41,19 @@ Each answer is confirmed aloud before the next question, every step offers **tap
 Spoken questions use your device's speech synthesis and can be turned off in **Settings → Preferences** (the questions still show on screen). The mic is only ever open *after* a question finishes, so the app never transcribes itself.
 
 **Typed quick-add** uses the exact same parser: type `uber 18 from chequing` into the bar at the top of Expenses/Earnings and hit Enter.
+
+## Analytics 📈
+
+The **Analytics** tab turns your entries into the kind of views Monarch/YNAB/PocketGuard users pay for — computed locally, live, from whatever you've recorded:
+
+- **Range presets** — 3 / 6 / 12 months, year-to-date, or all time, plus the same per-account filter chips as the lists.
+- **Headline tiles** — earned, spent, and savings rate for the range, each compared against the previous equal-length block.
+- **Cash flow** — income vs. spending per month as a grouped bar chart (with a plain-table view folded underneath for accessibility), net per month in the tooltip.
+- **Where it went / came from** — category ranking bars for the range with each row's share and its delta versus the previous period (*Dining ▲32%*).
+- **Balance trend** — your recorded balance day by day. Balances are pure income − expenses, so the line is always an honest replay of your entries.
+- **Insights feed** — rule-based callouts when there's enough data: spending pace vs. last month (projected month-end), biggest category spike and drop, savings-rate movement, largest single expense, average daily spend, and concentration warnings.
+
+Charts are drawn by pinned, SRI-verified [Chart.js](https://www.chartjs.org/) from a CDN — the only network request the app makes. Offline, every number still renders as a table.
 
 ### Voice browser support
 
@@ -92,22 +106,25 @@ Then in the repo: **Settings → Pages → Source: Deploy from a branch → `mai
 ## Project structure
 
 ```
-index.html          shell
-styles.css          dark minimalist theme
-js/store.js         localStorage data layer (accounts, transactions, settings)
-js/parser.js        voice/text parser (pure functions, Node-testable)
-js/voice.js         Web Speech API wrapper (mic preflight, spoken prompts)
-js/ui.js            views, modals, toasts, guided voice stepper
-js/app.js           boot + shortcuts
-test/parser.test.js parser suite — node test/parser.test.js
-test/store.test.js  store suite  — node test/store.test.js
+index.html            shell
+styles.css            dark minimalist theme
+js/store.js           localStorage data layer (accounts, transactions, settings)
+js/analytics.js       analytics compute (ranges, cash flow, balance series, insights — pure, Node-testable)
+js/parser.js          voice/text parser (pure functions, Node-testable)
+js/voice.js           Web Speech API wrapper (mic preflight, spoken prompts)
+js/ui.js              views, modals, toasts, guided voice stepper, chart mounting
+js/app.js             boot + shortcuts
+test/parser.test.js   parser suite    — node test/parser.test.js
+test/store.test.js    store suite     — node test/store.test.js
+test/analytics.test.js analytics suite — node test/analytics.test.js
 ```
 
 ## Tests
 
 ```bash
-node test/parser.test.js   # amounts, intent, categories, accounts, dates, guided-step helpers
-node test/store.test.js    # accounts, entries, balances, totals, export/import, settings
+node test/parser.test.js     # amounts, intent, categories, accounts, dates, guided-step helpers
+node test/store.test.js      # accounts, entries, balances, totals, export/import, settings
+node test/analytics.test.js  # month ranges, cash flow, category fold, balance series, insight rules
 ```
 
 ## Roadmap
