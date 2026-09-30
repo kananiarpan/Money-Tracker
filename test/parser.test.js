@@ -5,9 +5,9 @@ const parser = require('../js/parser.js');
 
 const TODAY = '2026-09-30';
 const ACCOUNTS = [
-  { id: 'a1', name: 'CIBC Current', type: 'bank' },
-  { id: 'a2', name: 'CIBC Savings', type: 'bank' },
-  { id: 'a3', name: 'CIBC Visa', type: 'credit' },
+  { id: 'a1', name: 'Main Chequing', type: 'bank' },
+  { id: 'a2', name: 'Main Savings', type: 'bank' },
+  { id: 'a3', name: 'Everyday Visa', type: 'credit' },
 ];
 
 /* Mirror of the store's category keyword tables (kept tiny fixtures so the
@@ -75,9 +75,9 @@ check('transport', parse('paid 45 for gas').categoryId, 'transport');
 check('no match -> null', parse('spent 20 on something random').categoryId, null);
 
 console.log('— account matching —');
-check('full name', parse('spent 24 on coffee from cibc current').accountId, 'a1');
-check('savings', parse('earned 1500 salary in cibc savings').accountId, 'a2');
-check('credit card by name', parse('paid 30 for dinner on cibc visa').accountId, 'a3');
+check('full name', parse('spent 24 on coffee from main chequing').accountId, 'a1');
+check('savings', parse('earned 1500 salary in main savings').accountId, 'a2');
+check('credit card by name', parse('paid 30 for dinner on everyday visa').accountId, 'a3');
 check('type synonym: credit card', parse('spent 50 on my credit card').accountId, 'a3');
 check('no account mentioned', parse('spent 20 on coffee').accountId, null);
 check('distinctive token resolves', parse('moved 100 to savings', { accounts: [ACCOUNTS[0], ACCOUNTS[1]] }).accountId, 'a2');
@@ -90,7 +90,7 @@ console.log('— dates & notes —');
 check('yesterday', parse('spent 12.50 on lunch yesterday').date, '2026-09-29');
 check('day before yesterday', parse('spent 10 on coffee the day before yesterday').date, '2026-09-28');
 check('default today', parse('spent 10 on coffee').date, TODAY);
-check('note keeps trailing words', parse('spent 24 on groceries for weekly supplies cibc current').note, 'Weekly supplies');
+check('note keeps trailing words', parse('spent 24 on groceries for weekly supplies main chequing').note, 'Weekly supplies');
 check('note strips stopwords', parse('paid 60 for internet').note, '');
 check('empty input safe', (() => { const d = parse(''); return d.amountCents === null && d.kind === null; })(), true);
 
@@ -129,7 +129,7 @@ check('skip', parser.noteIsSkipped('skip'), true);
 check('real note kept', parser.noteIsSkipped('weekly groceries'), false);
 
 console.log('— guided: accountMatch via parse —');
-check('name token', parse('in cibc savings').accountId, 'a2');
+check('name token', parse('in main savings').accountId, 'a2');
 check('credit synonym', parse('on credit card').accountId, 'a3');
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

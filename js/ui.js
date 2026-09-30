@@ -662,10 +662,16 @@ window.MTUI = (function () {
       accountId: ui.accountFilter === 'all' ? null : ui.accountFilter,
     });
     if (!txns.length) {
+      const accts = store().accounts();
+      const hintAcct = accts.length ? ` ${kind === 'expense' ? 'from' : 'in'} ${accts[0].name}` : '';
+      const spoken = kind === 'expense' ? `Spent 24 on groceries${hintAcct}` : `Earned 1500 salary${hintAcct}`;
+      const hint = accts.length
+        ? `Tap the mic and say: &ldquo;${esc(spoken)}&rdquo;`
+        : 'Add your first account in Settings — every entry needs one.';
       return `<section class="card empty-card">
         <div class="empty-icon">${ICONS.mic}</div>
         <p>Nothing here yet.</p>
-        <p class="empty-hint">Tap the mic and say: &ldquo;${kind === 'expense' ? 'Spent 24 on groceries from CIBC Current' : 'Earned 1500 salary in CIBC Savings'}&rdquo;</p>
+        <p class="empty-hint">${hint}</p>
       </section>`;
     }
 
@@ -713,9 +719,10 @@ window.MTUI = (function () {
         `<button class="chip ${ui.accountFilter === a.id ? 'chip-on' : ''}" data-chip="${a.id}" aria-pressed="${ui.accountFilter === a.id}">${esc(a.name)}</button>`))
       .join('');
 
+    const firstAcct = accounts[0];
     const example = kind === 'expense'
-      ? 'Type or say: spent 24 on groceries from CIBC Current'
-      : 'Type or say: earned 1500 salary in CIBC Savings';
+      ? 'Type or say: spent 24 on groceries' + (firstAcct ? ' from ' + firstAcct.name : '')
+      : 'Type or say: earned 1500 salary' + (firstAcct ? ' in ' + firstAcct.name : '');
 
     return `
       <section class="kpi-row">
@@ -725,7 +732,7 @@ window.MTUI = (function () {
       </section>
 
       <div class="quickadd">
-        <input id="quickadd" type="text" autocomplete="off" spellcheck="false" placeholder="${example}">
+        <input id="quickadd" type="text" autocomplete="off" spellcheck="false" placeholder="${esc(example)}">
         <button class="icon-btn qa-mic" data-action="qa-mic" aria-label="Add by voice" title="Add by voice">${ICONS.mic}</button>
       </div>
 

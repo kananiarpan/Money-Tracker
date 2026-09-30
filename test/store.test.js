@@ -23,14 +23,19 @@ function check(name, fn) {
 console.log('— store —');
 S.load();
 
-check('seeds CIBC Current + CIBC Savings', () => {
-  const names = S.accounts().map((a) => a.name);
-  assert.deepStrictEqual(names, ['CIBC Current', 'CIBC Savings']);
-  assert.strictEqual(S.accounts()[0].type, 'bank');
+check('fresh install starts with no accounts (each user adds their own)', () => {
+  assert.deepStrictEqual(S.accounts(), []);
+  assert.deepStrictEqual(S.transactions(), []);
 });
 
-const current = () => S.accounts().find((a) => a.name === 'CIBC Current');
-const savings = () => S.accounts().find((a) => a.name === 'CIBC Savings');
+check('addAccount creates accounts', () => {
+  assert.strictEqual(S.addAccount({ name: 'Main Chequing', type: 'bank' }).ok, true);
+  assert.strictEqual(S.addAccount({ name: 'Main Savings', type: 'bank' }).ok, true);
+  assert.strictEqual(S.accounts().length, 2);
+});
+
+const current = () => S.accounts().find((a) => a.name === 'Main Chequing');
+const savings = () => S.accounts().find((a) => a.name === 'Main Savings');
 const ym = S.todayISO().slice(0, 7);
 
 check('rejects entry without account', () => {
@@ -79,8 +84,8 @@ check('account in use cannot be deleted', () => {
   assert.strictEqual(res.error, 'in-use');
 });
 
-check('duplicate account name rejected', () => {
-  assert.strictEqual(S.addAccount({ name: 'cibc current', type: 'bank' }).ok, false);
+check('duplicate account name rejected (case-insensitive)', () => {
+  assert.strictEqual(S.addAccount({ name: 'main chequing', type: 'bank' }).ok, false);
 });
 
 check('export/import round-trips', () => {
@@ -95,10 +100,10 @@ check('import rejects garbage', () => {
   assert.strictEqual(S.importJSON('{"hello":1}').ok, false);
 });
 
-check('eraseAll reseeds defaults', () => {
+check('eraseAll resets to an empty fresh install', () => {
   S.eraseAll();
   assert.strictEqual(S.transactions().length, 0);
-  assert.strictEqual(S.accounts().length, 2);
+  assert.strictEqual(S.accounts().length, 0);
 });
 
 check('settings update validates input', () => {

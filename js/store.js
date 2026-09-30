@@ -69,13 +69,12 @@ window.MTStore = (function () {
 
   /* ---------- state ---------- */
 
+  /* No seed accounts: anyone can run their own copy of this app, so a fresh
+   * install starts empty and the user adds THEIR accounts in Settings.
+   * (Existing installs keep their data — this only shapes a first boot.) */
   function defaultState() {
-    const now = new Date().toISOString();
     return {
-      accounts: [
-        { id: uid(), name: 'CIBC Current', type: 'bank', createdAt: now },
-        { id: uid(), name: 'CIBC Savings', type: 'bank', createdAt: now },
-      ],
+      accounts: [],
       transactions: [],
       settings: { currency: 'CAD', voiceLang: 'en-CA', voicePrompts: true },
     };
