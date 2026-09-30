@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Money Tracker</title>
+  <meta name="description" content="Local-only money tracker. No login, no server — earnings, expenses and accounts, with voice entry.">
+  <meta name="theme-color" content="#0b0d10">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%2315181e'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='%233987e5' font-family='system-ui,sans-serif' font-weight='600'%3E$%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <aside id="sidebar">
+    <div class="brand">
+      <span class="brand-mark">$</span>
+      <span class="brand-name">Money Tracker</span>
+    </div>
+    <nav class="side-nav" aria-label="Sections">
+      <button data-nav="expense"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7l10 10"/><path d="M17 17v-7"/><path d="M17 17h-7"/></svg>Expenses</button>
+      <button data-nav="earnings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M17 7h-7"/><path d="M17 7v7"/></svg>Earnings</button>
+      <button data-nav="invest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-6"/><path d="M12 20V8"/><path d="M19 20v-9"/><path d="M3 20h18"/></svg>Invest</button>
+      <button data-nav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="17" r="2"/></svg>Settings</button>
+    </nav>
+    <p class="side-foot">Local-only · no login</p>
+  </aside>
+
+  <div class="page">
+    <header class="topbar">
+      <h1 id="view-title">Expenses</h1>
+      <div class="topbar-right">
+        <div id="month-nav" class="month-nav">
+          <button class="icon-btn" data-month="-1" aria-label="Previous month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 6l-6 6 6 6"/></svg></button>
+          <span id="month-label" class="month-label"></span>
+          <button class="icon-btn" data-month="1" aria-label="Next month"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6l6 6-6 6"/></svg></button>
+        </div>
+        <button id="add-btn" class="btn btn-primary" data-action="add-open">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          Add
+        </button>
+      </div>
+    </header>
+
+    <main id="view"></main>
+  </div>
+
+  <button id="fab" data-action="fab-mic" aria-label="Add by voice" title="Add by voice (V)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/>
+    </svg>
+  </button>
+
+  <nav id="tabbar" aria-label="Sections">
+    <button data-nav="expense"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7l10 10"/><path d="M17 17v-7"/><path d="M17 17h-7"/></svg><span>Expenses</span></button>
+    <button data-nav="earnings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M17 7h-7"/><path d="M17 7v7"/></svg><span>Earnings</span></button>
+    <button data-nav="invest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-6"/><path d="M12 20V8"/><path d="M19 20v-9"/><path d="M3 20h18"/></svg><span>Invest</span></button>
+    <button data-nav="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="7" cy="17" r="2"/></svg><span>Settings</span></button>
+  </nav>
+
+  <div id="overlay" hidden>
+    <div class="ov-card">
+      <div class="ov-mic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/><path d="M9 21h6"/>
+        </svg>
+      </div>
+      <p class="ov-status">Listening…</p>
+      <p class="ov-transcript">…</p>
+      <p class="ov-hint">Try: &ldquo;Spent 24 on groceries from CIBC Current&rdquo;</p>
+      <div class="ov-actions">
+        <button class="btn" data-listen-cancel>Cancel</button>
+        <button class="btn btn-primary" data-listen-done>Done</button>
+      </div>
+      <div class="ov-error-actions" hidden>
+        <button class="btn btn-primary" data-listen-typed>Type it instead</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-root" hidden></div>
+  <div id="toast-root" aria-live="polite"></div>
+
+  <script src="js/store.js"></script>
+  <script src="js/parser.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
